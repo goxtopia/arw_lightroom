@@ -51,7 +51,13 @@ const state = {
         startY: 0
     },
     autoNr: true,
-    loadedMetadata: null
+    loadedMetadata: null,
+    
+    // Silent background export status
+    silentExport: {
+        totalBurstCount: 0,
+        pollTimer: null
+    }
 };
 
 // Default parameters for reset
@@ -136,7 +142,12 @@ const el = {
     btnCloseExport: document.getElementById("btn-close-export"),
     btnCancelExportModal: document.getElementById("btn-cancel-export-modal"),
     btnZoomToggle: document.getElementById("btn-zoom-toggle"),
-    chkAutoNr: document.getElementById("chk-auto-nr")
+    chkAutoNr: document.getElementById("chk-auto-nr"),
+    btnQuickExport: document.getElementById("btn-quick-export"),
+    silentExportWidget: document.getElementById("silent-export-widget"),
+    silentExportFilename: document.getElementById("silent-export-filename"),
+    silentExportProgressFill: document.getElementById("silent-export-progress-fill"),
+    silentExportRemaining: document.getElementById("silent-export-remaining")
 };
 
 // Canvas context
@@ -289,6 +300,28 @@ function initEventListeners() {
         state.autoNr = e.target.checked;
         updateAutoNR();
         triggerPreviewUpdate();
+    });
+    
+    // Quick Export Event Listeners
+    el.btnQuickExport.addEventListener("click", () => {
+        quickExportAndNext();
+    });
+    
+    window.addEventListener("keydown", (e) => {
+        // Skip shortcut if focus is inside any input, select or textarea element
+        const activeTag = document.activeElement.tagName.toLowerCase();
+        if (activeTag === "input" || activeTag === "select" || activeTag === "textarea") {
+            return;
+        }
+        
+        // Match Ctrl+E or plain E
+        const isCtrlE = e.ctrlKey && e.key.toLowerCase() === "e";
+        const isPlainE = e.key.toLowerCase() === "e" && !e.ctrlKey && !e.altKey && !e.metaKey;
+        
+        if (isCtrlE || isPlainE) {
+            e.preventDefault();
+            quickExportAndNext();
+        }
     });
     
     // Initialize auto NR state
@@ -1306,5 +1339,122 @@ function updateAutoNR() {
         el.slideChromaNr.disabled = false;
         state.params.color_noise_reduction = parseFloat(el.slideChromaNr.value);
         updateSliderLabel(el.slideChromaNr, el.valChromaNr, "");
+    }
+}
+
+// Quick Export Active Image and Auto-advance to Next Image
+async function quickExportAndNext() {
+    if (!state.activeFilePath) {
+        alert("Please load an image first.");
+        return;
+    }
+    
+    const activePath = state.activeFilePath;
+    const activeName = state.activeFilename;
+    
+    // Silently notify the user through the status bar
+    updateStatus(`Queueing ${activeName} for silent export...`, "pulse");
+    
+    // Prepare parameter object
+    const params = {
+        exposure: state.params.exposure,
+        contrast: state.params.contrast,
+        highlights: state.params.highlights,
+        shadows: state.params.shadows,
+        saturation: state.params.saturation,
+        temperature: state.params.temperature,
+        tint: state.params.tint,
+        color_noise_reduction: state.params.color_noise_reduction,
+        auto_nr: state.autoNr,
+        lut: state.params.lut,
+        curves: state.params.curves
+    };
+    
+    try {
+        const res = await fetch("/api/export_single", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                filepath: activePath,
+                params: params
+            })
+        });
+        
+        if (res.ok) {
+            updateStatus(`Exporting ${activeName} in background...`, "success");
+            startSilentExportPolling();
+        } else {
+            const err = await res.json();
+            updateStatus(`Export failed for ${activeName}: ${err.detail || "Server error"}`, "error");
+        }
+    } catch (e) {
+        updateStatus(`Failed to request export: ${e.message}`, "error");
+    }
+    
+    // Immediately move to the next image in the scanned files list
+    const currentIndex = state.files.findIndex(f => f.path === activePath);
+    if (currentIndex !== -1 && currentIndex + 1 < state.files.length) {
+        loadFile(state.files[currentIndex + 1]);
+        
+        // Wait a small timeout for the UI classes to be applied, then scroll into view smoothly
+        setTimeout(() => {
+            const activeFilmstripItem = el.filmstripCarousel.querySelector(".filmstrip-item.active");
+            if (activeFilmstripItem) {
+                activeFilmstripItem.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+            }
+            const activeGridItem = el.fileGrid.querySelector(".file-grid-item.active");
+            if (activeGridItem) {
+                activeGridItem.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            }
+        }, 100);
+    } else {
+        updateStatus("Reached end of directory list", "warning");
+    }
+}
+
+// Start polling for background/silent export status
+function startSilentExportPolling() {
+    if (!state.silentExport.pollTimer) {
+        // Run poll immediately
+        pollSilentExportStatus();
+        // Set interval to poll every 1000ms
+        state.silentExport.pollTimer = setInterval(pollSilentExportStatus, 1000);
+    }
+}
+
+// Fetch queue details and update the floating progress widget
+async function pollSilentExportStatus() {
+    try {
+        const res = await fetch("/api/silent_export_status");
+        if (!res.ok) return;
+        const data = await res.json();
+        
+        if (data.total_queued > 0) {
+            // Update total burst count if current total queued is larger
+            if (data.total_queued > state.silentExport.totalBurstCount) {
+                state.silentExport.totalBurstCount = data.total_queued;
+            }
+            
+            const completed = state.silentExport.totalBurstCount - data.total_queued;
+            const percent = state.silentExport.totalBurstCount > 0 
+                ? Math.round((completed / state.silentExport.totalBurstCount) * 100)
+                : 0;
+            
+            // Show widget
+            el.silentExportWidget.style.display = "flex";
+            el.silentExportFilename.textContent = data.active_file || "Finalizing...";
+            el.silentExportProgressFill.style.width = `${percent}%`;
+            el.silentExportRemaining.textContent = `${data.total_queued} remaining in export queue`;
+        } else {
+            // Queue is empty! Hide the widget and stop polling
+            el.silentExportWidget.style.display = "none";
+            state.silentExport.totalBurstCount = 0;
+            if (state.silentExport.pollTimer) {
+                clearInterval(state.silentExport.pollTimer);
+                state.silentExport.pollTimer = null;
+            }
+        }
+    } catch (e) {
+        console.error("Error polling silent export status:", e);
     }
 }

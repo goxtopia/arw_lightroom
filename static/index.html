@@ -87,6 +87,9 @@
                         <span id="exif-details"></span>
                     </div>
                     <div class="viewport-actions">
+                        <button id="btn-quick-export" class="btn btn-sm btn-outline" title="Quick Export Active Image (Ctrl+E / E)">
+                            <i data-lucide="zap"></i> Quick Export
+                        </button>
                         <button id="btn-zoom-toggle" class="btn btn-sm btn-outline" title="Toggle Zoom">
                             <i data-lucide="zoom-in"></i> Zoom 100%
                         </button>
@@ -111,34 +114,6 @@
                     </div>
                 </div>
 
-                <!-- Curve Editor Section -->
-                <div class="curve-panel panel">
-                    <div class="panel-header">
-                        <div class="title-with-icon">
-                            <i data-lucide="activity"></i>
-                            <h2>Tone Curve</h2>
-                        </div>
-                        <div class="curve-controls">
-                            <select id="curve-channel" class="select-sm">
-                                <option value="rgb">RGB (Master)</option>
-                                <option value="red">Red</option>
-                                <option value="green">Green</option>
-                                <option value="blue">Blue</option>
-                            </select>
-                            <button id="btn-reset-curve" class="btn btn-sm btn-outline">Reset</button>
-                        </div>
-                    </div>
-                    <div class="curve-editor-body">
-                        <div class="canvas-container">
-                            <canvas id="curve-canvas" width="220" height="220"></canvas>
-                        </div>
-                        <div class="curve-instructions">
-                            <p>Click line to add control points.</p>
-                            <p>Drag points to adjust tone values.</p>
-                            <p>Right-click a point to remove it.</p>
-                        </div>
-                    </div>
-                </div>
             </section>
 
             <!-- Right Sidebar: Adjustment Sliders -->
@@ -222,6 +197,32 @@
                                     <span class="value-display" id="val-shadows">0.00</span>
                                 </div>
                                 <input type="range" id="slide-shadows" class="slider" min="-1.0" max="1.0" step="0.02" value="0.0" />
+                            </div>
+                        </div>
+
+                        <!-- Tone Curve Card -->
+                        <div class="adj-card">
+                            <div class="adj-card-title-flex">
+                                <h3 class="adj-card-title">Tone Curve</h3>
+                                <div class="curve-controls">
+                                    <select id="curve-channel" class="select-sm">
+                                        <option value="rgb">RGB (Master)</option>
+                                        <option value="red">Red</option>
+                                        <option value="green">Green</option>
+                                        <option value="blue">Blue</option>
+                                    </select>
+                                    <button id="btn-reset-curve" class="btn btn-sm btn-outline">Reset</button>
+                                </div>
+                            </div>
+                            <div class="curve-editor-body">
+                                <div class="canvas-container">
+                                    <canvas id="curve-canvas" width="220" height="220"></canvas>
+                                </div>
+                                <div class="curve-instructions">
+                                    <p>Click line to add control points.</p>
+                                    <p>Drag points to adjust tone values.</p>
+                                    <p>Right-click a point to remove it.</p>
+                                </div>
                             </div>
                         </div>
 
@@ -317,6 +318,21 @@
                 <button id="btn-cancel-export" class="btn btn-danger">Cancel Batch</button>
                 <button id="btn-close-export" class="btn btn-secondary" style="display: none;">Done</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Silent Export Progress Corner Widget -->
+    <div class="silent-export-widget" id="silent-export-widget" style="display: none;">
+        <div class="widget-header">
+            <i data-lucide="loader-2" class="spinning-icon"></i>
+            <span class="widget-title">Background Export</span>
+        </div>
+        <div class="widget-body">
+            <span id="silent-export-filename">filename.ARW</span>
+            <div class="widget-progress-bg">
+                <div class="widget-progress-fill" id="silent-export-progress-fill"></div>
+            </div>
+            <span id="silent-export-remaining">0 remaining in queue</span>
         </div>
     </div>
 

@@ -1,6 +1,7 @@
 import os
 import threading
 import urllib.parse
+import queue
 from typing import Dict, List
 import numpy as np
 import cv2
@@ -56,6 +57,13 @@ export_status = {
     "completed": []
 }
 
+# Silent background export status tracking
+silent_export_status = {
+    "active_file": None,
+    "completed": 0,
+    "total_queued": 0
+}
+
 # Image Pipeline Setup
 pipeline = ImagePipeline([
     ExposureProcessor(),
@@ -78,6 +86,10 @@ class PresetSaveRequest(BaseModel):
 class ExportRequest(BaseModel):
     files: List[str]
     params_map: Dict[str, dict]  # Maps file path to parameters dict
+
+class ExportSingleRequest(BaseModel):
+    filepath: str
+    params: dict
 
 # Utility to manage preview cache
 def get_cached_raw_base(filepath: str, temp: float, tint: float) -> tuple[np.ndarray, list[float]]:
@@ -223,6 +235,82 @@ def batch_export_worker(files: List[str], params_map: Dict[str, dict]):
             gc.collect()
             
     export_status["running"] = False
+
+# Silent background queue for single image exports
+silent_export_queue = queue.Queue()
+
+def silent_export_worker():
+    import gc
+    # Dedicated export pipeline
+    export_pipeline = ImagePipeline([
+        ExposureProcessor(),
+        HighlightsShadowsProcessor(),
+        ContrastProcessor(),
+        SaturationProcessor(),
+        CurveProcessor(),
+        LutProcessor(lut_manager),
+        NoiseReductionProcessor()
+    ])
+    
+    while True:
+        try:
+            item = silent_export_queue.get()
+            if item is None:
+                break
+            filepath, params = item
+            filename = os.path.basename(filepath)
+            
+            # Update background status
+            silent_export_status["active_file"] = filename
+            silent_export_status["total_queued"] = silent_export_queue.qsize() + 1
+            
+            # Load RAW at full 16-bit resolution
+            img_float, _ = RawLoader.load(filepath, params, half_size=False)
+            
+            # Run image pipeline
+            processed_img = export_pipeline.run(img_float, params)
+            
+            # Convert to 8-bit BGR for saving using a memory-efficient chunked approach
+            img_uint8 = np.empty(processed_img.shape, dtype=np.uint8)
+            h, w = processed_img.shape[:2]
+            total_pixels = h * w
+            flat_proc = processed_img.reshape(-1, 3)
+            flat_uint8 = img_uint8.reshape(-1, 3)
+            chunk_size = 5000000
+            for i in range(0, total_pixels, chunk_size):
+                end_idx = min(i + chunk_size, total_pixels)
+                flat_uint8[i:end_idx] = (flat_proc[i:end_idx] * 255.0).clip(0, 255).astype(np.uint8)
+                
+            img_bgr = cv2.cvtColor(img_uint8, cv2.COLOR_RGB2BGR)
+            
+            # Save in an 'exports' subfolder within the same source directory
+            source_dir = os.path.dirname(filepath)
+            export_dir = os.path.join(source_dir, "exports")
+            os.makedirs(export_dir, exist_ok=True)
+            
+            base_name = os.path.splitext(filename)[0]
+            out_path = os.path.join(export_dir, f"{base_name}_processed.png")
+            
+            cv2.imwrite(out_path, img_bgr)
+            
+            # Clean up references immediately to release memory
+            del img_float
+            del processed_img
+            del img_uint8
+            del img_bgr
+            print(f"[SILENT EXPORT SUCCESS] Exported {filename}")
+        except Exception as e:
+            print(f"[SILENT EXPORT ERROR] Failed to export: {str(e)}")
+        finally:
+            silent_export_status["active_file"] = None
+            silent_export_status["completed"] += 1
+            silent_export_status["total_queued"] = silent_export_queue.qsize()
+            gc.collect()
+            silent_export_queue.task_done()
+
+# Start silent export daemon thread
+t = threading.Thread(target=silent_export_worker, daemon=True)
+t.start()
 
 # API Routes
 @app.post("/api/scan_folder")
@@ -439,6 +527,44 @@ def cancel_export():
         export_status["running"] = False
         return {"status": "cancelled"}
     return {"status": "not running"}
+
+@app.post("/api/export_single")
+def export_single(req: ExportSingleRequest):
+    if not os.path.exists(req.filepath):
+        raise HTTPException(status_code=404, detail="File not found")
+        
+    params = dict(req.params)
+    # If Auto NR is checked, calculate strength dynamically for this image's ISO rating
+    if params.get("auto_nr", False):
+        exif_meta = get_exif_metadata(req.filepath)
+        iso = exif_meta.get("iso")
+        if iso is not None:
+            try:
+                iso_val = float(iso)
+                if iso_val > 100.0:
+                    import math
+                    strength = 13.0 * math.log2(iso_val / 100.0)
+                    params["color_noise_reduction"] = max(0.0, min(100.0, round(strength)))
+                else:
+                    params["color_noise_reduction"] = 0.0
+            except Exception:
+                params["color_noise_reduction"] = 0.0
+        else:
+            params["color_noise_reduction"] = 0.0
+            
+    # Increment total queued counter
+    silent_export_status["total_queued"] = silent_export_queue.qsize() + 1
+    silent_export_queue.put((req.filepath, params))
+    return {"status": "queued"}
+
+@app.get("/api/silent_export_status")
+def get_silent_export_status():
+    global silent_export_status, silent_export_queue
+    return {
+        "active_file": silent_export_status["active_file"],
+        "queue_size": silent_export_queue.qsize(),
+        "total_queued": silent_export_status["total_queued"]
+    }
 
 # Serve Frontend static assets
 static_path = os.path.join(BASE_DIR, "static")
