@@ -1,0 +1,53 @@
+{
+    "exposure": 0.45,
+    "contrast": 0.08,
+    "highlights": -0.1,
+    "shadows": -0.08,
+    "saturation": -0.02,
+    "temperature": 5500,
+    "tint": 0,
+    "color_noise_reduction": 73,
+    "lut": "None",
+    "curves": {
+        "rgb": [
+            [
+                0,
+                0
+            ],
+            [
+                1,
+                1
+            ]
+        ],
+        "red": [
+            [
+                0,
+                0
+            ],
+            [
+                1,
+                1
+            ]
+        ],
+        "green": [
+            [
+                0,
+                0
+            ],
+            [
+                1,
+                1
+            ]
+        ],
+        "blue": [
+            [
+                0,
+                0
+            ],
+            [
+                1,
+                1
+            ]
+        ]
+    }
+}

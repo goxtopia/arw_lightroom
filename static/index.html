@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sony ARW Lightroom - Advanced RAW Processor</title>
+    <!-- Google Fonts: Outfit -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Lucide Icons for premium feel -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Top Bar -->
+        <header class="top-bar">
+            <div class="logo">
+                <span class="accent-dot"></span>
+                <h1>α-Lightroom</h1>
+                <span class="sublogo">Sony ARW Editor</span>
+            </div>
+            
+            <div class="folder-scanner">
+                <div class="input-group">
+                    <i data-lucide="folder-open"></i>
+                    <input type="text" id="folder-path" placeholder="Enter Sony ARW directory path (e.g. D:/Photos/Raw)..." />
+                </div>
+                <button id="btn-scan" class="btn btn-primary">
+                    <i data-lucide="search"></i> Scan Directory
+                </button>
+            </div>
+            
+            <div class="global-status" id="global-status">
+                <i data-lucide="circle-dot" class="pulse-icon"></i>
+                <span id="status-text">Ready</span>
+            </div>
+        </header>
+
+        <!-- Main Workspace -->
+        <main class="workspace">
+            <!-- Left Sidebar: Presets & Album Gallery -->
+            <aside class="sidebar-left">
+                <!-- Preset Section -->
+                <section class="panel preset-panel">
+                    <div class="panel-header">
+                        <i data-lucide="sliders-horizontal"></i>
+                        <h2>Presets</h2>
+                    </div>
+                    <div class="panel-content scrollable" id="presets-list">
+                        <!-- Populated by JS -->
+                        <div class="loading-spinner">Loading presets...</div>
+                    </div>
+                </section>
+
+                <!-- File Album / Grid Gallery -->
+                <section class="panel album-panel">
+                    <div class="panel-header-sticky">
+                        <div class="panel-header">
+                            <i data-lucide="image"></i>
+                            <h2>Album Gallery</h2>
+                            <span class="badge" id="file-count">0 files</span>
+                        </div>
+                        <div class="gallery-controls">
+                            <div class="selection-actions">
+                                <button id="btn-select-all" class="btn btn-sm btn-outline">Select All</button>
+                                <button id="btn-deselect-all" class="btn btn-sm btn-outline">Clear</button>
+                            </div>
+                            <input type="text" id="search-files" placeholder="Filter files..." class="search-input" />
+                        </div>
+                    </div>
+                    <div class="panel-content scrollable" id="file-grid">
+                        <div class="empty-state">
+                            <i data-lucide="folder-search" class="large-icon"></i>
+                            <p>Enter a folder path above and click Scan Directory to load Sony ARW files.</p>
+                        </div>
+                    </div>
+                </section>
+            </aside>
+
+            <!-- Center Panel: Large Image Previewer & Tone Curves -->
+            <section class="viewport-container">
+                <div class="viewport-header">
+                    <div class="file-info">
+                        <span id="current-filename">No image loaded</span>
+                        <span id="exif-details"></span>
+                    </div>
+                    <div class="viewport-actions">
+                        <button id="btn-before-after" class="btn btn-sm btn-outline" title="Hold to see original">
+                            <i data-lucide="eye"></i> Hold to Compare
+                        </button>
+                    </div>
+                </div>
+
+                <div class="image-viewer" id="image-viewer-container">
+                    <!-- Preview Image -->
+                    <div class="image-wrapper">
+                        <img id="preview-image" src="" alt="" style="display: none;" />
+                        <div id="image-loader" class="image-loader" style="display: none;">
+                            <div class="spinner"></div>
+                            <p>Processing RAW...</p>
+                        </div>
+                        <div id="viewer-placeholder" class="viewer-placeholder">
+                            <i data-lucide="aperture" class="spinning-logo"></i>
+                            <p>Select a photo from the gallery to start editing</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Curve Editor Section -->
+                <div class="curve-panel panel">
+                    <div class="panel-header">
+                        <div class="title-with-icon">
+                            <i data-lucide="activity"></i>
+                            <h2>Tone Curve</h2>
+                        </div>
+                        <div class="curve-controls">
+                            <select id="curve-channel" class="select-sm">
+                                <option value="rgb">RGB (Master)</option>
+                                <option value="red">Red</option>
+                                <option value="green">Green</option>
+                                <option value="blue">Blue</option>
+                            </select>
+                            <button id="btn-reset-curve" class="btn btn-sm btn-outline">Reset</button>
+                        </div>
+                    </div>
+                    <div class="curve-editor-body">
+                        <div class="canvas-container">
+                            <canvas id="curve-canvas" width="220" height="220"></canvas>
+                        </div>
+                        <div class="curve-instructions">
+                            <p>Click line to add control points.</p>
+                            <p>Drag points to adjust tone values.</p>
+                            <p>Right-click a point to remove it.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right Sidebar: Adjustment Sliders -->
+            <aside class="sidebar-right">
+                <div class="panel adjustments-panel">
+                    <div class="panel-header">
+                        <i data-lucide="sliders"></i>
+                        <h2>Develop Settings</h2>
+                    </div>
+
+                    <div class="adjustments-content scrollable">
+                        <!-- White Balance Card -->
+                        <div class="adj-card">
+                            <h3 class="adj-card-title">White Balance</h3>
+                            
+                            <div class="slider-group">
+                                <div class="slider-header">
+                                    <label for="slide-temp">Color Temp</label>
+                                    <span class="value-display" id="val-temp">5500 K</span>
+                                </div>
+                                <input type="range" id="slide-temp" class="slider temp-slider" min="2000" max="12000" step="50" value="5500" />
+                            </div>
+
+                            <div class="slider-group">
+                                <div class="slider-header">
+                                    <label for="slide-tint">Tint</label>
+                                    <span class="value-display" id="val-tint">0</span>
+                                </div>
+                                <input type="range" id="slide-tint" class="slider tint-slider" min="-150" max="150" step="1" value="0" />
+                            </div>
+                            
+                            <button id="btn-as-shot-wb" class="btn btn-block btn-sm btn-outline">
+                                <i data-lucide="refresh-cw"></i> Reset to Camera WB
+                            </button>
+                        </div>
+
+                        <!-- Basic Exposure Card -->
+                        <div class="adj-card">
+                            <h3 class="adj-card-title">Basic Adjustments</h3>
+                            
+                            <div class="slider-group">
+                                <div class="slider-header">
+                                    <label for="slide-exposure">Exposure (EV)</label>
+                                    <span class="value-display" id="val-exposure">0.00</span>
+                                </div>
+                                <input type="range" id="slide-exposure" class="slider" min="-5.0" max="5.0" step="0.05" value="0.0" />
+                            </div>
+
+                            <div class="slider-group">
+                                <div class="slider-header">
+                                    <label for="slide-contrast">Contrast</label>
+                                    <span class="value-display" id="val-contrast">0.00</span>
+                                </div>
+                                <input type="range" id="slide-contrast" class="slider" min="-1.0" max="1.0" step="0.02" value="0.0" />
+                            </div>
+
+                            <div class="slider-group">
+                                <div class="slider-header">
+                                    <label for="slide-saturation">Saturation</label>
+                                    <span class="value-display" id="val-saturation">0.00</span>
+                                </div>
+                                <input type="range" id="slide-saturation" class="slider" min="-1.0" max="1.0" step="0.02" value="0.0" />
+                            </div>
+                        </div>
+
+                        <!-- Highlights and Shadows Card -->
+                        <div class="adj-card">
+                            <h3 class="adj-card-title">Tone Recovery</h3>
+                            
+                            <div class="slider-group">
+                                <div class="slider-header">
+                                    <label for="slide-highlights">Highlights</label>
+                                    <span class="value-display" id="val-highlights">0.00</span>
+                                </div>
+                                <input type="range" id="slide-highlights" class="slider" min="-1.0" max="1.0" step="0.02" value="0.0" />
+                            </div>
+
+                            <div class="slider-group">
+                                <div class="slider-header">
+                                    <label for="slide-shadows">Shadows</label>
+                                    <span class="value-display" id="val-shadows">0.00</span>
+                                </div>
+                                <input type="range" id="slide-shadows" class="slider" min="-1.0" max="1.0" step="0.02" value="0.0" />
+                            </div>
+                        </div>
+
+                        <!-- Color Noise Reduction Card -->
+                        <div class="adj-card">
+                            <h3 class="adj-card-title">Noise Reduction</h3>
+                            
+                            <div class="slider-group">
+                                <div class="slider-header">
+                                    <label for="slide-chroma-nr">Color Noise Reduction</label>
+                                    <span class="value-display" id="val-chroma-nr">0</span>
+                                </div>
+                                <input type="range" id="slide-chroma-nr" class="slider" min="0" max="100" step="1" value="0" />
+                            </div>
+                        </div>
+
+                        <!-- LUT Color Grading Card -->
+                        <div class="adj-card">
+                            <h3 class="adj-card-title">Color Grading LUT</h3>
+                            <div class="select-group">
+                                <label for="lut-select">Look-Up Table (3D LUT)</label>
+                                <select id="lut-select" class="select-block">
+                                    <option value="None">None</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Operations -->
+                        <div class="action-card">
+                            <div class="preset-saver-box">
+                                <input type="text" id="new-preset-name" placeholder="Preset name..." />
+                                <button id="btn-save-preset" class="btn btn-sm btn-outline">
+                                    <i data-lucide="plus"></i> Save Preset
+                                </button>
+                            </div>
+
+                            <div class="export-box">
+                                <div class="export-summary">
+                                    <span id="selected-export-count">0 files selected</span>
+                                </div>
+                                <button id="btn-export-batch" class="btn btn-primary btn-block">
+                                    <i data-lucide="download"></i> Export Selected (PNG)
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </main>
+
+        <!-- Bottom Filmstrip Carousel -->
+        <footer class="filmstrip">
+            <div class="filmstrip-inner" id="filmstrip-carousel">
+                <!-- Filmstrip items populate here -->
+            </div>
+        </footer>
+    </div>
+
+    <!-- Export Modal Overlay -->
+    <div class="modal-overlay" id="export-modal" style="display: none;">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Batch Export Processing</h2>
+                <button id="btn-cancel-export-modal" class="btn-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="progress-container">
+                    <div class="progress-bar-bg">
+                        <div class="progress-bar-fill" id="export-progress-fill" style="width: 0%;"></div>
+                    </div>
+                    <div class="progress-labels">
+                        <span id="export-progress-text">Exporting: 0 / 0 files</span>
+                        <span id="export-progress-percentage">0%</span>
+                    </div>
+                </div>
+                
+                <div class="current-file-working">
+                    <span class="label">Processing:</span>
+                    <span id="export-current-file-name">filename.ARW</span>
+                </div>
+
+                <div class="export-log scrollable" id="export-log-output">
+                    <!-- Export log steps list here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="btn-cancel-export" class="btn btn-danger">Cancel Batch</button>
+                <button id="btn-close-export" class="btn btn-secondary" style="display: none;">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Init JS logic -->
+    <script>
+        // Init Lucide icons
+        lucide.createIcons();
+    </script>
+    <script src="/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,53 @@
+{
+    "exposure": 0.1,
+    "contrast": -0.1,
+    "highlights": -0.15,
+    "shadows": 0.2,
+    "saturation": -0.1,
+    "temperature": 5500.0,
+    "tint": 0.0,
+    "color_noise_reduction": 20.0,
+    "lut": "Warm Vintage.cube",
+    "curves": {
+        "rgb": [
+            [
+                0.0,
+                0.0
+            ],
+            [
+                1.0,
+                1.0
+            ]
+        ],
+        "red": [
+            [
+                0.0,
+                0.0
+            ],
+            [
+                1.0,
+                1.0
+            ]
+        ],
+        "green": [
+            [
+                0.0,
+                0.0
+            ],
+            [
+                1.0,
+                1.0
+            ]
+        ],
+        "blue": [
+            [
+                0.0,
+                0.0
+            ],
+            [
+                1.0,
+                1.0
+            ]
+        ]
+    }
+}
