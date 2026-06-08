@@ -10,7 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <!-- Lucide Icons for premium feel -->
     <script src="https://unpkg.com/lucide@latest"></script>
-    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/style.css?v=2">
 </head>
 <body>
     <div class="app-container">
@@ -87,6 +87,9 @@
                         <span id="exif-details"></span>
                     </div>
                     <div class="viewport-actions">
+                        <button id="btn-zoom-toggle" class="btn btn-sm btn-outline" title="Toggle Zoom">
+                            <i data-lucide="zoom-in"></i> Zoom 100%
+                        </button>
                         <button id="btn-before-after" class="btn btn-sm btn-outline" title="Hold to see original">
                             <i data-lucide="eye"></i> Hold to Compare
                         </button>
@@ -224,7 +227,13 @@
 
                         <!-- Color Noise Reduction Card -->
                         <div class="adj-card">
-                            <h3 class="adj-card-title">Noise Reduction</h3>
+                            <div class="adj-card-title-flex">
+                                <h3 class="adj-card-title">Noise Reduction</h3>
+                                <div class="auto-toggle-container">
+                                    <input type="checkbox" id="chk-auto-nr" checked />
+                                    <label for="chk-auto-nr">Auto</label>
+                                </div>
+                            </div>
                             
                             <div class="slider-group">
                                 <div class="slider-header">

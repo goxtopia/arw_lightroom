@@ -32,7 +32,6 @@ const state = {
             blue: [[0.0, 0.0], [1.0, 1.0]]
         }
     },
-    
     // Spline curve editor variables
     curve: {
         channel: "rgb",
@@ -40,7 +39,19 @@ const state = {
         dragged: false,
         padding: 15,
         gridSize: 220
-    }
+    },
+    
+    // Zoom and Pan state
+    zoom: {
+        active: false,
+        x: 0,
+        y: 0,
+        isDragging: false,
+        startX: 0,
+        startY: 0
+    },
+    autoNr: true,
+    loadedMetadata: null
 };
 
 // Default parameters for reset
@@ -123,7 +134,9 @@ const el = {
     exportLogOutput: document.getElementById("export-log-output"),
     btnCancelExport: document.getElementById("btn-cancel-export"),
     btnCloseExport: document.getElementById("btn-close-export"),
-    btnCancelExportModal: document.getElementById("btn-cancel-export-modal")
+    btnCancelExportModal: document.getElementById("btn-cancel-export-modal"),
+    btnZoomToggle: document.getElementById("btn-zoom-toggle"),
+    chkAutoNr: document.getElementById("chk-auto-nr")
 };
 
 // Canvas context
@@ -212,7 +225,74 @@ function initEventListeners() {
     el.btnExportBatch.addEventListener("click", startBatchExport);
     el.btnCancelExport.addEventListener("click", cancelBatchExport);
     el.btnCancelExportModal.addEventListener("click", () => el.exportModal.style.display = "none");
-    el.btnCloseExport.addEventListener("click", () => el.exportModal.style.display = "none");
+    if (el.btnCloseExport) {
+        el.btnCloseExport.addEventListener("click", () => el.exportModal.style.display = "none");
+    }
+    
+    // Zoom and Pan event listeners
+    el.btnZoomToggle.addEventListener("click", () => {
+        toggleZoom();
+    });
+    
+    let clickStartX = 0;
+    let clickStartY = 0;
+    
+    el.previewImage.addEventListener("dragstart", (e) => {
+        e.preventDefault();
+    });
+    
+    el.previewImage.addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return; // Only left click
+        clickStartX = e.clientX;
+        clickStartY = e.clientY;
+        
+        if (state.zoom.active) {
+            state.zoom.isDragging = true;
+            state.zoom.startX = e.clientX - state.zoom.x;
+            state.zoom.startY = e.clientY - state.zoom.y;
+            el.previewImage.classList.add("dragging");
+        }
+    });
+    
+    window.addEventListener("mousemove", (e) => {
+        if (state.zoom.active && state.zoom.isDragging) {
+            state.zoom.x = e.clientX - state.zoom.startX;
+            state.zoom.y = e.clientY - state.zoom.startY;
+            el.previewImage.style.transform = `translate(${state.zoom.x}px, ${state.zoom.y}px) scale(3)`;
+        }
+    });
+    
+    window.addEventListener("mouseup", (e) => {
+        if (state.zoom.isDragging) {
+            state.zoom.isDragging = false;
+            el.previewImage.classList.remove("dragging");
+        } else if (e.target === el.previewImage && e.button === 0) {
+            const distance = Math.hypot(e.clientX - clickStartX, e.clientY - clickStartY);
+            if (distance < 5) {
+                if (!state.zoom.active) {
+                    const rect = el.previewImage.getBoundingClientRect();
+                    const mouseX = e.clientX;
+                    const mouseY = e.clientY;
+                    const centerX = rect.left + rect.width / 2;
+                    const centerY = rect.top + rect.height / 2;
+                    
+                    state.zoom.x = (centerX - mouseX) * 2;
+                    state.zoom.y = (centerY - mouseY) * 2;
+                }
+                toggleZoom();
+            }
+        }
+    });
+    
+    // Auto Noise Reduction checkbox change listener
+    el.chkAutoNr.addEventListener("change", (e) => {
+        state.autoNr = e.target.checked;
+        updateAutoNR();
+        triggerPreviewUpdate();
+    });
+    
+    // Initialize auto NR state
+    updateAutoNR();
 }
 
 // Slider Helper to map values instantly
@@ -437,9 +517,18 @@ async function loadFile(file) {
     el.currentFilename.textContent = file.name;
     el.exifDetails.textContent = "Loading EXIF...";
     
-    // Reset parameters to defaults (or we can preserve parameters if user wants to copy-paste edit settings.
-    // Preserving current slider settings allows user to apply adjustments across multiple images like Lightroom sync!)
-    // Let's preserve current adjustments for convenience, which is exactly Lightroom's behavior when moving between files!
+    // Reset zoom state
+    if (state.zoom.active) {
+        state.zoom.active = false;
+        state.zoom.x = 0;
+        state.zoom.y = 0;
+        state.zoom.isDragging = false;
+        el.previewImage.classList.remove("zoomed");
+        el.previewImage.classList.remove("dragging");
+        el.previewImage.style.transform = "";
+        el.btnZoomToggle.innerHTML = '<i data-lucide="zoom-in"></i> Zoom 100%';
+        lucide.createIcons();
+    }
     
     try {
         // Get exif metadata
@@ -447,11 +536,31 @@ async function loadFile(file) {
         if (metadataRes.ok) {
             const meta = await metadataRes.json();
             state.cameraWb = meta.camera_wb;
-            el.exifDetails.textContent = `${meta.camera_make} ${meta.camera_model} | ${meta.width}x${meta.height}`;
+            state.loadedMetadata = meta;
+            
+            // Build EXIF details string
+            let exifStr = `${meta.camera_make} ${meta.camera_model} | ${meta.width}x${meta.height}`;
+            const exifParts = [];
+            if (meta.focal_length) exifParts.push(meta.focal_length);
+            if (meta.aperture) exifParts.push(meta.aperture);
+            if (meta.shutter) exifParts.push(meta.shutter);
+            if (meta.iso) exifParts.push(`ISO ${meta.iso}`);
+            
+            if (exifParts.length > 0) {
+                exifStr += ` | ${exifParts.join(" ")}`;
+            }
+            el.exifDetails.textContent = exifStr;
+        } else {
+            state.loadedMetadata = null;
+            el.exifDetails.textContent = "Sony RAW Image";
         }
     } catch (e) {
+        state.loadedMetadata = null;
         el.exifDetails.textContent = "Sony RAW Image";
     }
+    
+    // Apply Auto NR for this image's ISO rating
+    updateAutoNR();
     
     // Fetch and display preview
     refreshPreview();
@@ -878,6 +987,11 @@ async function applyPreset(presetName) {
             state.params.curves = JSON.parse(JSON.stringify(preset.curves)); // deep copy
         }
         
+        // Applying a preset overrides Auto NR to respect manual settings
+        state.autoNr = false;
+        el.chkAutoNr.checked = false;
+        el.slideChromaNr.disabled = false;
+        
         // Sync sliders in UI
         el.slideExposure.value = state.params.exposure;
         el.slideContrast.value = state.params.contrast;
@@ -992,6 +1106,7 @@ async function startBatchExport() {
             temperature: state.params.temperature,
             tint: state.params.tint,
             color_noise_reduction: state.params.color_noise_reduction,
+            auto_nr: state.autoNr,
             lut: state.params.lut,
             curves: state.params.curves
         }
@@ -1145,4 +1260,51 @@ function updateStatus(text, type) {
     
     // Refresh Lucide icon rendering
     lucide.createIcons();
+}
+
+// Interactive Zoom & Pan Helpers
+function toggleZoom() {
+    state.zoom.active = !state.zoom.active;
+    if (!state.zoom.active) {
+        state.zoom.x = 0;
+        state.zoom.y = 0;
+        el.previewImage.classList.remove("zoomed");
+        el.previewImage.classList.remove("dragging");
+        el.previewImage.style.transform = "";
+        el.btnZoomToggle.innerHTML = '<i data-lucide="zoom-in"></i> Zoom 100%';
+    } else {
+        el.previewImage.classList.add("zoomed");
+        el.previewImage.style.transform = `translate(${state.zoom.x}px, ${state.zoom.y}px) scale(3)`;
+        el.btnZoomToggle.innerHTML = '<i data-lucide="zoom-out"></i> Zoom Fit';
+    }
+    lucide.createIcons();
+}
+
+// Log-based Auto Noise Reduction curve mapping: clip(13.0 * log2(ISO / 100), 0.0, 100.0)
+function calculateAutoNR(iso) {
+    if (!iso || isNaN(iso) || iso <= 100) {
+        return 0;
+    }
+    const strength = 13.0 * Math.log2(iso / 100);
+    return Math.max(0, Math.min(100, Math.round(strength)));
+}
+
+// Update Noise Reduction slider based on auto/manual selection and EXIF metadata
+function updateAutoNR() {
+    if (state.autoNr) {
+        let iso = 100;
+        if (state.loadedMetadata && state.loadedMetadata.iso) {
+            iso = parseInt(state.loadedMetadata.iso);
+        }
+        const autoVal = calculateAutoNR(iso);
+        
+        state.params.color_noise_reduction = autoVal;
+        el.slideChromaNr.value = autoVal;
+        el.slideChromaNr.disabled = true;
+        updateSliderLabel(el.slideChromaNr, el.valChromaNr, "");
+    } else {
+        el.slideChromaNr.disabled = false;
+        state.params.color_noise_reduction = parseFloat(el.slideChromaNr.value);
+        updateSliderLabel(el.slideChromaNr, el.valChromaNr, "");
+    }
 }

@@ -155,7 +155,26 @@ def batch_export_worker(files: List[str], params_map: Dict[str, dict]):
         export_status["current_file"] = filename
         
         try:
-            params = params_map.get(filepath, params_map.get("default", {}))
+            # Copy parameters to avoid mutating the shared default dict in-place
+            params = dict(params_map.get(filepath, params_map.get("default", {})))
+            
+            # If Auto NR is checked, calculate strength dynamically for this image's ISO rating
+            if params.get("auto_nr", False):
+                exif_meta = get_exif_metadata(filepath)
+                iso = exif_meta.get("iso")
+                if iso is not None:
+                    try:
+                        iso_val = float(iso)
+                        if iso_val > 100.0:
+                            import math
+                            strength = 13.0 * math.log2(iso_val / 100.0)
+                            params["color_noise_reduction"] = max(0.0, min(100.0, round(strength)))
+                        else:
+                            params["color_noise_reduction"] = 0.0
+                    except Exception:
+                        params["color_noise_reduction"] = 0.0
+                else:
+                    params["color_noise_reduction"] = 0.0
             
             # Load RAW at full 16-bit resolution
             img_float, _ = RawLoader.load(filepath, params, half_size=False)
@@ -266,23 +285,62 @@ def get_thumbnail(path: str = Query(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate thumbnail: {str(e)}")
 
-def get_camera_make_model(path: str) -> tuple[str, str]:
+def get_exif_metadata(path: str) -> dict:
+    metadata = {
+        "make": "Sony",
+        "model": "Alpha Camera",
+        "iso": None,
+        "shutter": None,
+        "aperture": None,
+        "focal_length": None
+    }
     try:
         import rawpy
         from PIL import Image
         import io
         with rawpy.imread(path) as raw:
-            thumb = raw.extract_thumb()
-            if thumb.format == rawpy.ThumbFormat.JPEG:
-                img = Image.open(io.BytesIO(thumb.data))
-                exif = img.getexif()
-                # 271 is Make, 272 is Model in EXIF tags
-                make = str(exif.get(271, "Sony")).strip()
-                model = str(exif.get(272, "Alpha Camera")).strip()
-                return make, model
+            try:
+                thumb = raw.extract_thumb()
+                if thumb.format == rawpy.ThumbFormat.JPEG:
+                    img = Image.open(io.BytesIO(thumb.data))
+                    exif = img.getexif()
+                    
+                    # Make & Model from Main IFD
+                    metadata["make"] = str(exif.get(271, "Sony")).strip()
+                    metadata["model"] = str(exif.get(272, "Alpha Camera")).strip()
+                    
+                    # Sub-IFD EXIF tags
+                    sub_exif = exif.get_ifd(34665)
+                    if sub_exif:
+                        # ISO (Tag 34855)
+                        metadata["iso"] = sub_exif.get(34855)
+                        
+                        # ExposureTime (Tag 33434)
+                        shutter_val = sub_exif.get(33434)
+                        if shutter_val:
+                            shutter_float = float(shutter_val)
+                            if shutter_float >= 1.0:
+                                metadata["shutter"] = f"{shutter_float:.1f}s"
+                            else:
+                                try:
+                                    metadata["shutter"] = f"1/{int(round(1.0 / shutter_float))}s"
+                                except Exception:
+                                    metadata["shutter"] = f"{shutter_val}s"
+                                    
+                        # FNumber (Tag 33437)
+                        aperture_val = sub_exif.get(33437)
+                        if aperture_val:
+                            metadata["aperture"] = f"f/{float(aperture_val):.1f}"
+                            
+                        # FocalLength (Tag 37386)
+                        focal_val = sub_exif.get(37386)
+                        if focal_val:
+                            metadata["focal_length"] = f"{float(focal_val):.0f}mm"
+            except Exception:
+                pass
     except Exception:
         pass
-    return "Sony", "Alpha Camera"
+    return metadata
 
 @app.get("/api/metadata")
 def get_metadata(path: str = Query(...)):
@@ -294,7 +352,7 @@ def get_metadata(path: str = Query(...)):
             sizes = raw.sizes
             camera_wb = list(raw.camera_whitebalance)
             
-        make, model = get_camera_make_model(path)
+        exif_meta = get_exif_metadata(path)
         
         return {
             "width": sizes.width,
@@ -302,8 +360,12 @@ def get_metadata(path: str = Query(...)):
             "raw_width": sizes.raw_width,
             "raw_height": sizes.raw_height,
             "camera_wb": camera_wb,
-            "camera_make": make,
-            "camera_model": model
+            "camera_make": exif_meta["make"],
+            "camera_model": exif_meta["model"],
+            "iso": exif_meta["iso"],
+            "shutter": exif_meta["shutter"],
+            "aperture": exif_meta["aperture"],
+            "focal_length": exif_meta["focal_length"]
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
