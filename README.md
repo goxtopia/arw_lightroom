@@ -106,38 +106,3 @@ arw_lightroom/
 └── pyproject.toml         # UV Project config / UV 项目配置文件
 ```
 
----
-
-## Key Optimization Details / 核心优化细节
-
-### Curve Quantization Lookup / 曲线量化查找
-
-Standard spline evaluation via `np.interp` evaluates millions of coordinates on a single CPU thread and promotes arrays to `float64`, consuming 1.44 GB of memory. By using a 4096-bin quantized float32 table:
-
-```python
-# Create a high-resolution 12-bit LUT (4096 bins)
-lut_fine = np.interp(np.linspace(0, 1, 4096, dtype=np.float32), xp, curve_lut).astype(np.float32)
-
-# Vectorized lookup in chunks
-indices = (chunk * 4095.0)
-np.clip(indices, 0.0, 4095.0, out=indices)
-chunk_out = lut_fine[indices.astype(np.int32)]
-```
-
-This is **7x faster** and allocates less than 40 MB of temporary memory per chunk.
-
-### SciPy LUT Mapping / 快速 LUT 映射
-
-Applying 3D LUTs requires trilinear interpolation across $N^3$ space. We leverage SciPy's C-compiled `map_coordinates` in chunks:
-
-```python
-coords = np.vstack([
-    chunk_img[:, 2] * (N - 1),  # Blue (Axis 0)
-    chunk_img[:, 1] * (N - 1),  # Green (Axis 1)
-    chunk_img[:, 0] * (N - 1)   # Red (Axis 2)
-])
-for ch in range(3):
-    flat_out[i:end_idx, ch] = map_coordinates(lut[:, :, :, ch], coords, order=1, prefilter=False)
-```
-
-This reduces execution time from 28.7s to **8.1s** for a 60MP image and maintains strict float32 precision.
